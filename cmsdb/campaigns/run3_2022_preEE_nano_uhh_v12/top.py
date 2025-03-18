@@ -329,8 +329,6 @@ cpn.add_dataset(
     },
 )
 
-# TODO: ttwz missing
-
 cpn.add_dataset(
     name="ttzz_madgraph",
     id=14796051,

@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 import json
 from argparse import ArgumentParser
+import re
 
 
 def get_generator_name(name: str) -> str:
@@ -26,33 +27,37 @@ def get_generator_name(name: str) -> str:
         return ""
 
 
-def get_broken_files_str(data: dict, n_spaces: int = 20) -> str:
-    """
-    Function that returns a string represenatation of broken files
-    """
-
-    broken_files_list = [
-        f'"{d}",  # broken  # noqa: E501' for d in data["broken_files"]
-    ] + [
-        f'"{d}",  # empty  # noqa: E501' for d in data["empty_files"] if d not in data["broken_files"]
-    ]
-
-    if not broken_files_list:
-        return ""
-    else:
-        return (
-            f"\n{' '* n_spaces}" +
-            f"\n{' '* n_spaces}".join(broken_files_list) +
-            f"\n{' '* (n_spaces - 4)}"
-        )
-
-
 def convert_default(data: dict, placeholder="PLACEHOLDER") -> str:
     """
     Function that converts dataset info into one order Dataset per query
     """
-    generator = get_generator_name(data["name"])
+    pattern = r"_MA-(\d+)_MH-(\d+)"
 
+    generator = get_generator_name(data["name"])
+    match = re.search(pattern, data["name"])
+    if match:
+        ma = match.group(1)  # Wert von MA
+        mh = match.group(2)  # Wert von MH
+    # print(f"MA: {ma}, MH: {mh}")
+    return f"""cpn.add_dataset(
+    name="azh_htt_zll_a{ma}_h{mh}{generator}",
+    id={data['dataset_id']},
+    processes=[procs.azh_htt_zll_a{ma}_h{mh}],
+    keys=[
+        "{data['name']}",  # noqa
+    ],
+    n_files={data['nfiles']},
+    n_events={data['nevents']},
+)
+"""
+
+
+def convert_variation(data: dict, placeholder="PLACEHOLDER") -> str:
+    """
+    Function that converts dataset info into one order Dataset per query. Stores the dataset info
+    in a dict with the dataset type as key.
+    """
+    generator = get_generator_name(data["name"])
     return f"""cpn.add_dataset(
     name="{placeholder}{generator}",
     id={data['dataset_id']},
@@ -60,12 +65,9 @@ def convert_default(data: dict, placeholder="PLACEHOLDER") -> str:
     info=dict(
         nominal=DatasetInfo(
             keys=[
-                "{data['name']}",  # noqa: E501
+                "{data['name']}",  # noqa
             ],
-            aux={{
-                "broken_files": [{get_broken_files_str(data)}],
-            }},
-            n_files={data['nfiles_good']},  # {data["nfiles"]}-{data["nfiles_bad"]}
+            n_files={data['nfiles']},
             n_events={data['nevents']},
         ),
     ),
@@ -86,14 +88,15 @@ identifier_map = {
     "_MT-173p5_": "mtop_up",
     "_withDipoleRecoil_": "with_dipole_recoil",
     "_dipoleRecoilOn_": "dipole_recoil_on",
+
     # dataset types that I have no use for but want to keep anyways
-    "_MT-166p5_": "comment",
-    "_MT-169p5_": "comment",
-    "_MT-175p5_": "comment",
-    "_MT-178p5_": "comment",
-    "_DS_TuneCP5_": "comment",
-    "_TuneCP5_ERDOn_": "comment",
-    "_TuneCH3_": "comment",
+    # "_MT-166p5_": "comment",
+    # "_MT-169p5_": "comment",
+    # "_MT-175p5_": "comment",
+    # "_MT-178p5_": "comment",
+    # "_DS_TuneCP5_": "comment",
+    # "_TuneCP5_ERDOn_": "comment",
+    # "_TuneCH3_": "comment",
     # dataset types that I want to skip completely
     # "example_key": "ignore",
     # nominal entry as the last one such that other dataset types get priority
@@ -134,12 +137,9 @@ def convert_top(data: dict, placeholder="PLACEHOLDER") -> str:
     info=dict(
         nominal=DatasetInfo(
             keys=[
-                "{data['name']}",  # noqa: E501
+                "{data['name']}",  # noqa
             ],
-            aux={{
-                "broken_files": [{get_broken_files_str(data)}],
-            }},
-            n_files={data['nfiles_good']},  # {data["nfiles"]}-{data["nfiles_bad"]}
+            n_files={data['nfiles']},
             n_events={data['nevents']},
         ),
     ),
@@ -148,12 +148,9 @@ def convert_top(data: dict, placeholder="PLACEHOLDER") -> str:
         # comment out this dataset
         return f"""        # {identifier}=DatasetInfo(
         #     keys=[
-        #         "{data['name']}",  # noqa: E501
+        #         "{data['name']}",  # noqa
         #     ],
-        #     aux={{
-        #         "broken_files": [{get_broken_files_str(data)}],
-        #     }},
-        #     n_files={data['nfiles_good']},  # {data["nfiles"]}-{data["nfiles_bad"]}
+        #     n_files={data['nfiles']},
         #     n_events={data['nevents']},
         # ),"""
     elif dataset_type == "ignore":
@@ -162,12 +159,9 @@ def convert_top(data: dict, placeholder="PLACEHOLDER") -> str:
         # some known variation of the dataset
         return f"""        {dataset_type}=DatasetInfo(
             keys=[
-                "{data['name']}",  # noqa: E501
+                "{data['name']}",  # noqa
             ],
-            aux={{
-                "broken_files": [{get_broken_files_str(data)}],
-            }},
-            n_files={data['nfiles_good']},  # {data["nfiles"]}-{data["nfiles_bad"]}
+            n_files={data['nfiles']},
             n_events={data['nevents']},
         ),"""
 
@@ -183,22 +177,25 @@ def convert_minimal(data: dict) -> str:
     """
     Function that only returns the dataset key + number of events.
     """
-    return f"""{data['name']}\nFiles: {data['nfiles_good']}\nEvents: {data['nevents']}\n"""
+    return f"""{data['name']}\nFiles: {data['nfiles']}\nEvents: {data['nevents']}\n"""
 
 
 convert_functions = {
     "default": convert_default,
+    "variation": convert_variation,
     "keys": convert_keys,
     "top": convert_top,
     "minimal": convert_minimal,
 }
 
 
-def load_das_info(dataset: str, add_file_info: bool = False) -> dict:
+def get_das_info(
+    dataset: str,
+) -> dict:
     from law.util import interruptable_popen
 
     # call dasgoclient command
-    cmd = f"dasgoclient -query='{'file ' if add_file_info else ''}dataset={dataset}' -json"
+    cmd = f"dasgoclient -query='dataset={dataset}' -json"
     code, out, _ = interruptable_popen(
         cmd,
         shell=True,
@@ -208,44 +205,16 @@ def load_das_info(dataset: str, add_file_info: bool = False) -> dict:
     if code != 0:
         raise Exception(f"dasgoclient query failed:\n{out}")
     infos = json.loads(out)
-
-    return infos
-
-
-def get_das_info(dataset: str) -> dict:
     info_of_interest = {"name": dataset}
-
-    file_infos = load_das_info(dataset, add_file_info=True)
-
-    info_of_interest["dataset_id"] = file_infos[0]["file"][0]["dataset_id"]
-
-    empty_files_filter = lambda info: info["file"][0]["nevents"] == 0
-    broken_files_filter = lambda info: info["file"][0]["is_file_valid"] == 0
-
-    good_files = list(filter(lambda x: not broken_files_filter(x) and not empty_files_filter(x), file_infos))
-
-    dataset_id = {info["file"][0]["dataset_id"] for info in good_files}
-    if len(dataset_id) == 1:
-        info_of_interest["dataset_id"] = dataset_id.pop()
-    else:
-        raise ValueError(f"Multiple dataset IDs ({dataset_id}) found for dataset {dataset}")
-
-    info_of_interest["nfiles"] = len(file_infos)
-    info_of_interest["nfiles_good"] = len(good_files)
-    info_of_interest["nevents"] = sum(info["file"][0]["nevents"] for info in good_files)
-
-    empty_files = [
-        info["file"][0]["name"]
-        for info in filter(empty_files_filter, file_infos)
-    ]
-    broken_files = [
-        info["file"][0]["name"]
-        for info in filter(broken_files_filter, file_infos)
-    ]
-    info_of_interest["empty_files"] = empty_files
-    info_of_interest["broken_files"] = broken_files
-
-    info_of_interest["nfiles_bad"] = len(set(empty_files + broken_files))
+    for info in infos:
+        dataset_info = info["dataset"][0]
+        # Get json format of single das_string gives multiple dictornaries with different info
+        # Avoid to print multiple infos twice and ask specificly for the kew of interest
+        if "dataset_info" in info["das"]["services"][0]:
+            info_of_interest["dataset_id"] = dataset_info.get("dataset_id", "")
+        elif "filesummaries" in info["das"]["services"][0]:
+            info_of_interest["nfiles"] = dataset_info.get("nfiles", "")
+            info_of_interest["nevents"] = dataset_info.get("nevents", "")
 
     return info_of_interest
 
@@ -255,6 +224,8 @@ def print_das_info(
     keys_of_interest: tuple | None = None,
     convert_function_str: str | None = None,
 ):
+    from law.util import interruptable_popen
+
     # get the requested convert function
     convert_function = convert_functions[convert_function_str]
 
@@ -262,7 +233,7 @@ def print_das_info(
         # set default keys of interest
         # NOTE: this attribute is currently not used
         keys_of_interest = keys_of_interest or (
-            "name", "dataset_id", "nfiles", "nevents", "empty_files", "broken_files",
+            "name", "dataset_id", "nfiles", "nevents",
         )
 
         wildcard = "*" in das_string
@@ -272,7 +243,16 @@ def print_das_info(
             datasets.append(das_string)
         else:
             # using a wildcard leads to a different structer in json format
-            infos = load_das_info(das_string, add_file_info=False)
+            cmd = f"dasgoclient -query='dataset={das_string}' -json"
+            code, out, _ = interruptable_popen(
+                cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                executable="/bin/bash",
+            )
+            if code != 0:
+                raise Exception(f"dasgoclient query failed:\n{out}")
+            infos = json.loads(out)
             for info in infos:
                 dataset_name = info.get("dataset", [])[0].get("name", "")
                 datasets.append(dataset_name)
